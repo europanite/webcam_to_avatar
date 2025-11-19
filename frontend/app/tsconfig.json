@@ -1,19 +1,10 @@
 {
+  "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "target": "ES6",
-    "module": "ESNext",
-    "jsx": "react-jsx",
     "strict": true,
-    "moduleResolution": "node",
-    "skipLibCheck": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "types": [
-      "dom"
-    ]
-  },
-  "include": [
-    "src"
-  ],
-  "extends": "expo/tsconfig.base"
+    "moduleResolution": "bundler",
+    "lib": ["esnext", "dom"],
+    "types": ["jest", "@testing-library/jest-dom", "node"],
+    "baseUrl": ".",
+  }
 }
