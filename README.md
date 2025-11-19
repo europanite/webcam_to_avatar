@@ -1,16 +1,14 @@
 # [vre](https://github.com/europanite/vre "vre")
 
+[PlayGround](https://europanite.github.io/vre/)
+
 A Playground for controling a vroid avatar with detecting a user motion. 
-
----
-
-##  🚀 PlayGround
- [vre](https://europanite.github.io/vre/)
 
 ---
 
 ##  ✨ Features
 
+- Use Thunder model as a pose detector.
 
 ---
 
