@@ -129,7 +129,6 @@ interface ThreeContext {
  */
 function getHumanoidBoneNode(vrm: VRM | null, bone: BoneName): THREE.Object3D | null {
   if (!vrm || !vrm.humanoid) return null;
-  // The string keys like "hips", "leftUpperArm" are accepted by getNormalizedBoneNode
   const node = vrm.humanoid.getNormalizedBoneNode(VRM_BONE_NAMES[bone] as any);
   return node ?? null;
 }
@@ -296,7 +295,11 @@ function applyPoseToVRMFromKeypoints(
     // Negative when arm goes up, positive when it goes down
     const leftAngleFromHorizontal = signedAngleBetweenVecs2D(leftHorizontal, leftUpperArmVec);
     // We want positive for raising, negative for lowering
-    const leftAbduction = THREE.MathUtils.clamp(-leftAngleFromHorizontal, -Math.PI / 2, Math.PI / 2);
+    const leftAbduction = THREE.MathUtils.clamp(
+      -leftAngleFromHorizontal,
+      -Math.PI / 2,
+      Math.PI / 2,
+    );
 
     setLocalEulerDelta(
       vrm,
@@ -328,18 +331,6 @@ function applyPoseToVRMFromKeypoints(
       new THREE.Euler(0, 0, rightAbduction),
     );
   }
-
-  // Debug: these values should now change smoothly and NOT stay at ±π/2
-  // and leftAngle should not be stuck negative because we use signed angle directly.
-  // Comment out if too noisy.
-  console.debug("Arm abduction", {
-    left: {
-      hasElbow: !!leftElbow,
-    },
-    right: {
-      hasElbow: !!rightElbow,
-    },
-  });
 
   // --- Legs: simple flexion from hip->knee -------------------------------------------
   if (leftKnee) {
@@ -456,7 +447,10 @@ export default function HomeScreen() {
 
         await new Promise<void>((resolve) => {
           video.onloadedmetadata = () => {
-            video.play().then(() => resolve()).catch(() => resolve());
+            video
+              .play()
+              .then(() => resolve())
+              .catch(() => resolve());
           };
         });
 
@@ -527,7 +521,6 @@ export default function HomeScreen() {
             VRMUtils.rotateVRM0(vrm);
 
             // Face the camera
-            vrm.scene.rotation.y = Math.PI;
             vrm.scene.rotation.y = 0;
             vrm.scene.position.set(0, -0.8, 0);
 
@@ -562,7 +555,9 @@ export default function HomeScreen() {
             try {
               const poses = await det.estimatePoses(video, {
                 maxPoses: 1,
-                flipHorizontal: false, // Mirror like a webcam
+                // We do NOT flip horizontally here; both video and overlay
+                // are mirrored by CSS, so model works in the original space.
+                flipHorizontal: false,
               });
 
               if (poses && poses.length > 0) {
@@ -683,9 +678,7 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {status.error ? (
-        <Text style={styles.errorText}>{status.error}</Text>
-      ) : null}
+      {status.error ? <Text style={styles.errorText}>{status.error}</Text> : null}
     </ScrollView>
   );
 }
@@ -738,45 +731,46 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     pointerEvents: "none",
+    // Mirror overlay as well so bones match the mirrored video
+    transform: "scaleX(-1)",
+    transformOrigin: "center",
   },
   vrmBox: {
     width: VRM_WIDTH,
     height: VRM_HEIGHT,
-    backgroundColor: "#f0f0f0",
-    borderRadius: 8,
-    overflow: "hidden",
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#ddd",
   },
   vrmCanvas: {
     width: "100%",
     height: "100%",
   },
   statusRow: {
+    marginTop: 16,
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
-    marginTop: 16,
     gap: 8,
   } as any,
   statusBox: {
-    minWidth: 90,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    backgroundColor: "#ffffff",
+    minWidth: 100,
+    padding: 8,
+    borderRadius: 4,
+    backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: "#eee",
   },
   statusLabel: {
     fontSize: 12,
     fontWeight: "600",
-    marginBottom: 2,
   },
   statusText: {
     fontSize: 12,
   },
   errorText: {
-    marginTop: 16,
-    fontSize: 12,
+    marginTop: 12,
     color: "#d32f2f",
+    textAlign: "center",
   },
 });
