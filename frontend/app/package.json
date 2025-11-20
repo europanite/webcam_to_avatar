@@ -13,6 +13,7 @@
   "dependencies": {
     "@emotion/styled": "^11.14.1",
     "@expo/metro-runtime": "^6.1.2",
+    "@mediapipe/holistic": "^0.5.1675471629",
     "@mui/joy": "^5.0.0-beta.52",
     "@mui/material": "^7.2.0",
     "@pixiv/three-vrm": "^3.4.4",

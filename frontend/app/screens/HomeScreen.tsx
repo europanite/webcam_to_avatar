@@ -1,121 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
-import * as tf from "@tensorflow/tfjs-core";
-import "@tensorflow/tfjs-backend-webgl";
-import * as posedetection from "@tensorflow-models/pose-detection";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
 import { VRM, VRMUtils, VRMLoaderPlugin } from "@pixiv/three-vrm";
-
-/**
- * Allow using <video> and <canvas> tags in TSX for React Native Web.
- */
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      video: any;
-      canvas: any;
-    }
-  }
-}
-
-type Detector = posedetection.PoseDetector;
-type Keypoint = posedetection.Keypoint;
+import * as Kalidokit from "kalidokit";
 
 const VIDEO_WIDTH = 640;
 const VIDEO_HEIGHT = 480;
-const VRM_WIDTH = 480;
-const VRM_HEIGHT = 640;
-const MIN_KEYPOINT_SCORE = 0.3;
-
-const SKELETON_EDGES: Array<[posedetection.KeypointName, posedetection.KeypointName]> = [
-  // Torso
-  ["left_shoulder", "right_shoulder"],
-  ["left_hip", "right_hip"],
-  ["left_shoulder", "left_hip"],
-  ["right_shoulder", "right_hip"],
-
-  // Left arm
-  ["left_shoulder", "left_elbow"],
-  ["left_elbow", "left_wrist"],
-
-  // Right arm
-  ["right_shoulder", "right_elbow"],
-  ["right_elbow", "right_wrist"],
-
-  // Left leg
-  ["left_hip", "left_knee"],
-  ["left_knee", "left_ankle"],
-
-  // Right leg
-  ["right_hip", "right_knee"],
-  ["right_knee", "right_ankle"],
-];
-
-function getKeypoint(
-  keypoints: Keypoint[],
-  name: posedetection.KeypointName,
-  minScore: number = MIN_KEYPOINT_SCORE,
-): Keypoint | null {
-  const kp = keypoints.find((k) => k.name === name);
-  if (!kp || (kp.score ?? 0) < minScore) return null;
-  return kp;
-}
-
-function drawSkeletonOnCanvas(ctx: CanvasRenderingContext2D, keypoints: Keypoint[]): void {
-  ctx.save();
-  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = "#00bcd4";
-  ctx.fillStyle = "#ff4081";
-
-  // Draw bones
-  for (const [aName, bName] of SKELETON_EDGES) {
-    const a = getKeypoint(keypoints, aName);
-    const b = getKeypoint(keypoints, bName);
-    if (!a || !b) continue;
-
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
-    ctx.stroke();
-  }
-
-  // Draw joints
-  for (const kp of keypoints) {
-    if ((kp.score ?? 0) < MIN_KEYPOINT_SCORE) continue;
-    ctx.beginPath();
-    ctx.arc(kp.x, kp.y, 4, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  ctx.restore();
-}
-
-/**
- * VRM bone names we want to control.
- * These strings are accepted by vrm.humanoid.getNormalizedBoneNode("hips" | "spine" | ...).
- */
-const VRM_BONE_NAMES = {
-  hips: "hips",
-  spine: "spine",
-  chest: "chest",
-  upperChest: "upperChest",
-  neck: "neck",
-  head: "head",
-  leftUpperArm: "leftUpperArm",
-  leftLowerArm: "leftLowerArm",
-  rightUpperArm: "rightUpperArm",
-  rightLowerArm: "rightLowerArm",
-  leftUpperLeg: "leftUpperLeg",
-  leftLowerLeg: "leftLowerLeg",
-  rightUpperLeg: "rightUpperLeg",
-  rightLowerLeg: "rightLowerLeg",
-} as const;
-
-type BoneName = keyof typeof VRM_BONE_NAMES;
-type BoneInitialRotations = Map<BoneName, THREE.Quaternion>;
 
 interface ThreeContext {
   renderer: THREE.WebGLRenderer;
@@ -124,526 +15,709 @@ interface ThreeContext {
   clock: THREE.Clock;
 }
 
-/**
- * Get the humanoid bone node (normalized) from a VRM instance.
- */
-function getHumanoidBoneNode(vrm: VRM | null, bone: BoneName): THREE.Object3D | null {
-  if (!vrm || !vrm.humanoid) return null;
-  const node = vrm.humanoid.getNormalizedBoneNode(VRM_BONE_NAMES[bone] as any);
-  return node ?? null;
-}
-
-/**
- * Cache the initial local rotation (quaternion) of each bone.
- */
-function cacheInitialBoneRotations(vrm: VRM | null, map: BoneInitialRotations): void {
-  if (!vrm || !vrm.humanoid) return;
-  (Object.keys(VRM_BONE_NAMES) as BoneName[]).forEach((bone) => {
-    const node = getHumanoidBoneNode(vrm, bone);
-    if (node) {
-      map.set(bone, node.quaternion.clone());
-    }
-  });
-}
-
-/**
- * Reset all controlled bones to their cached initial rotation.
- */
-function resetBonesToInitial(vrm: VRM | null, map: BoneInitialRotations): void {
-  if (!vrm || !vrm.humanoid) return;
-  (Object.keys(VRM_BONE_NAMES) as BoneName[]).forEach((bone) => {
-    const node = getHumanoidBoneNode(vrm, bone);
-    const initial = map.get(bone);
-    if (node && initial) {
-      node.quaternion.copy(initial);
-    }
-  });
-}
-
-/**
- * Apply a delta Euler rotation (in local space) on top of the cached initial rotation.
- */
-function setLocalEulerDelta(
-  vrm: VRM | null,
-  map: BoneInitialRotations,
-  bone: BoneName,
-  deltaEuler: THREE.Euler,
-): void {
-  const node = getHumanoidBoneNode(vrm, bone);
-  const initial = map.get(bone);
-  if (!node || !initial) return;
-
-  const deltaQ = new THREE.Quaternion().setFromEuler(deltaEuler);
-  node.quaternion.copy(initial).multiply(deltaQ);
-}
-
-/**
- * Create a normalized 2D vector from keypoint A to keypoint B.
- * Camera coordinates: origin at top-left, x to the right, y down.
- */
-function vec2FromKeypoints(a: Keypoint, b: Keypoint): THREE.Vector2 {
-  const v = new THREE.Vector2(b.x - a.x, b.y - a.y);
-  if (v.lengthSq() === 0) return new THREE.Vector2(0, 0);
-  return v.normalize();
-}
-
-/**
- * Signed angle between two 2D vectors in the image plane.
- * Returns angle in radians in the range [-π, π].
- */
-function signedAngleBetweenVecs2D(a: THREE.Vector2, b: THREE.Vector2): number {
-  if (a.lengthSq() === 0 || b.lengthSq() === 0) return 0;
-  const aN = a.clone().normalize();
-  const bN = b.clone().normalize();
-  const dot = THREE.MathUtils.clamp(aN.dot(bN), -1, 1);
-  const cross = aN.x * bN.y - aN.y * bN.x;
-  return Math.atan2(cross, dot);
-}
-
-/**
- * Basic, robust pose retargeting:
- * - Torso tilt from hip -> shoulder
- * - Head orientation from shoulders & nose
- * - Arm abduction from shoulder -> elbow in 2D (this part fixes baseLeftAngle/leftAbduction issue)
- * - Leg flexion from hip -> knee
- */
-function applyPoseToVRMFromKeypoints(
-  vrm: VRM | null,
-  keypoints: Keypoint[],
-  initialMap: BoneInitialRotations,
-): void {
-  if (!vrm) return;
-  if (initialMap.size === 0) {
-    cacheInitialBoneRotations(vrm, initialMap);
-    if (initialMap.size === 0) return;
-  }
-
-  const nose = getKeypoint(keypoints, "nose");
-  const leftShoulder = getKeypoint(keypoints, "left_shoulder");
-  const rightShoulder = getKeypoint(keypoints, "right_shoulder");
-  const leftHip = getKeypoint(keypoints, "left_hip");
-  const rightHip = getKeypoint(keypoints, "right_hip");
-  const leftElbow = getKeypoint(keypoints, "left_elbow");
-  const rightElbow = getKeypoint(keypoints, "right_elbow");
-  const leftKnee = getKeypoint(keypoints, "left_knee");
-  const rightKnee = getKeypoint(keypoints, "right_knee");
-
-  if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) {
-    // Not enough data for a stable torso; just reset
-    resetBonesToInitial(vrm, initialMap);
-    return;
-  }
-
-  // --- Torso: hips, spine, chest tilt (front/back) -----------------------------------
-  const midHip = {
-    x: (leftHip.x + rightHip.x) / 2,
-    y: (leftHip.y + rightHip.y) / 2,
-    score: Math.min(leftHip.score ?? 0, rightHip.score ?? 0),
-    name: "mid_hip",
-  } as Keypoint;
-
-  const midShoulder = {
-    x: (leftShoulder.x + rightShoulder.x) / 2,
-    y: (leftShoulder.y + rightShoulder.y) / 2,
-    score: Math.min(leftShoulder.score ?? 0, rightShoulder.score ?? 0),
-    name: "mid_shoulder",
-  } as Keypoint;
-
-  const torsoVec = vec2FromKeypoints(midHip, midShoulder);
-  // Image y-axis is down, so "lean forward" is torsoVec.y < 0 (toward top)
-  const torsoPitch = THREE.MathUtils.clamp(-torsoVec.y * 0.5, -0.6, 0.6);
-
-  setLocalEulerDelta(vrm, initialMap, "hips", new THREE.Euler(torsoPitch * 0.3, 0, 0));
-  setLocalEulerDelta(vrm, initialMap, "spine", new THREE.Euler(torsoPitch * 0.4, 0, 0));
-  setLocalEulerDelta(vrm, initialMap, "chest", new THREE.Euler(torsoPitch * 0.3, 0, 0));
-
-  // --- Head: simple look direction from shoulders & nose -----------------------------
-  if (nose) {
-    const shouldersVec = vec2FromKeypoints(leftShoulder, rightShoulder);
-    // yaw: rotation around Y axis (left / right turning)
-    const headYaw = THREE.MathUtils.clamp(
-      signedAngleBetweenVecs2D(new THREE.Vector2(1, 0), shouldersVec) * 0.5,
-      -0.6,
-      0.6,
-    );
-
-    // pitch: nose relative to mid shoulders (up / down)
-    const headPitch = THREE.MathUtils.clamp(
-      ((midShoulder.y - nose.y) / VIDEO_HEIGHT) * 2.0,
-      -0.5,
-      0.5,
-    );
-
-    setLocalEulerDelta(
-      vrm,
-      initialMap,
-      "neck",
-      new THREE.Euler(headPitch * 0.3, headYaw * 0.3, 0),
-    );
-    setLocalEulerDelta(
-      vrm,
-      initialMap,
-      "head",
-      new THREE.Euler(headPitch * 0.7, headYaw * 0.7, 0),
-    );
-  }
-
-  // --- Arms: abduction from shoulder->elbow (FIX for baseLeftAngle/leftAbduction) ----
-  if (leftElbow) {
-    const leftUpperArmVec = vec2FromKeypoints(leftShoulder, leftElbow);
-    const leftHorizontal = new THREE.Vector2(-1, 0); // T-pose reference (pointing to the left)
-    // Negative when arm goes up, positive when it goes down
-    const leftAngleFromHorizontal = signedAngleBetweenVecs2D(leftHorizontal, leftUpperArmVec);
-    // We want positive for raising, negative for lowering
-    const leftAbduction = THREE.MathUtils.clamp(
-      -leftAngleFromHorizontal,
-      -Math.PI / 2,
-      Math.PI / 2,
-    );
-
-    setLocalEulerDelta(
-      vrm,
-      initialMap,
-      "leftUpperArm",
-      // Rotate around Z to move arm up/down in screen space
-      new THREE.Euler(0, 0, leftAbduction),
-    );
-  }
-
-  if (rightElbow) {
-    const rightUpperArmVec = vec2FromKeypoints(rightShoulder, rightElbow);
-    const rightHorizontal = new THREE.Vector2(1, 0); // T-pose reference (pointing to the right)
-    // Positive when arm goes up, negative when it goes down
-    const rightAngleFromHorizontal = signedAngleBetweenVecs2D(
-      rightHorizontal,
-      rightUpperArmVec,
-    );
-    const rightAbduction = THREE.MathUtils.clamp(
-      rightAngleFromHorizontal,
-      -Math.PI / 2,
-      Math.PI / 2,
-    );
-
-    setLocalEulerDelta(
-      vrm,
-      initialMap,
-      "rightUpperArm",
-      new THREE.Euler(0, 0, rightAbduction),
-    );
-  }
-
-  // --- Legs: simple flexion from hip->knee -------------------------------------------
-  if (leftKnee) {
-    const leftLegVec = vec2FromKeypoints(leftHip, leftKnee);
-    const legDown = new THREE.Vector2(0, 1);
-    const leftLegAngle = signedAngleBetweenVecs2D(legDown, leftLegVec);
-    const leftFlex = THREE.MathUtils.clamp(leftLegAngle, -0.7, 0.7);
-    setLocalEulerDelta(
-      vrm,
-      initialMap,
-      "leftUpperLeg",
-      new THREE.Euler(leftFlex, 0, 0),
-    );
-  }
-
-  if (rightKnee) {
-    const rightLegVec = vec2FromKeypoints(rightHip, rightKnee);
-    const legDown = new THREE.Vector2(0, 1);
-    const rightLegAngle = signedAngleBetweenVecs2D(legDown, rightLegVec);
-    const rightFlex = THREE.MathUtils.clamp(rightLegAngle, -0.7, 0.7);
-    setLocalEulerDelta(
-      vrm,
-      initialMap,
-      "rightUpperLeg",
-      new THREE.Euler(rightFlex, 0, 0),
-    );
-  }
-}
-
-/**
- * Main WebCamera / VRM canvas layout.
- * (Only rendered on web)
- */
-const WebCameraAndVrmView: React.FC = () => {
-  if (Platform.OS !== "web") return null;
-
-  return (
-    <View style={styles.cameraRow}>
-      <View style={styles.cameraBox}>
-        <video
-          id="camera-video"
-          style={styles.video}
-          autoPlay
-          muted
-          playsInline
-        />
-        <canvas id="camera-overlay" style={styles.cameraOverlay} />
-      </View>
-      <View style={styles.vrmBox}>
-        <canvas id="vrm-canvas" style={styles.vrmCanvas} />
-      </View>
-    </View>
-  );
-};
-
 interface UiStatus {
-  tf: string;
   camera: string;
-  detector: string;
+  holistic: string;
   tracking: string;
   vrm: string;
   error?: string;
 }
 
-const initialStatus: UiStatus = {
-  tf: "idle",
-  camera: "idle",
-  detector: "idle",
-  tracking: "idle",
-  vrm: "idle",
-  error: undefined,
-};
+/**
+ * Dynamically load MediaPipe Holistic from CDN.
+ * We avoid using `import` to prevent bundler issues like
+ * "Holistic is not a constructor".
+ */
+async function loadHolisticFromCdn(): Promise<any> {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    throw new Error("Holistic can only be loaded in a browser environment");
+  }
 
-export default function HomeScreen() {
-  const [status, setStatus] = useState<UiStatus>(initialStatus);
+  const existing = (window as any).Holistic;
+  if (existing) {
+    return existing;
+  }
 
-  const detectorRef = useRef<Detector | null>(null);
-  const vrmRef = useRef<VRM | null>(null);
-  const bonesRef = useRef<BoneInitialRotations>(new Map());
+  await new Promise<void>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src =
+      "https://cdn.jsdelivr.net/npm/@mediapipe/holistic@0.5/holistic.js";
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = (err) => reject(err);
+    document.head.appendChild(script);
+  });
+
+  const HolisticCtor = (window as any).Holistic;
+  if (!HolisticCtor) {
+    throw new Error("Failed to load MediaPipe Holistic from CDN");
+  }
+  return HolisticCtor;
+}
+
+/**
+ * Dynamically load MediaPipe Camera utilities (Camera helper).
+ */
+async function loadCameraUtilsFromCdn(): Promise<void> {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return;
+  }
+
+  if ((window as any).Camera) {
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src =
+      "https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js";
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = (err) => reject(err);
+    document.head.appendChild(script);
+  });
+}
+
+/**
+ * Very small check for MediaPipe landmark arrays.
+ * Ensures we have the expected number of landmarks and that
+ * each landmark has finite x/y/z values.
+ */
+function isValidLandmarkArray(
+  landmarks: any,
+  expectedLength: number
+): landmarks is Array<{ x: number; y: number; z: number }> {
+  if (!landmarks || !Array.isArray(landmarks)) return false;
+  if (landmarks.length < expectedLength) return false;
+
+  for (let i = 0; i < expectedLength; i += 1) {
+    const lm = landmarks[i];
+    if (
+      !lm ||
+      typeof lm.x !== "number" ||
+      typeof lm.y !== "number" ||
+      typeof lm.z !== "number" ||
+      Number.isNaN(lm.x) ||
+      Number.isNaN(lm.y) ||
+      Number.isNaN(lm.z)
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Helper: smoothly apply rotation to a VRM bone.
+ */
+function rigRotation(
+  bone: THREE.Object3D,
+  rotation: { x?: number; y?: number; z?: number } | null | undefined,
+  dampener = 1,
+  lerpAmount = 0.3
+) {
+  // Skip invalid rotation
+  if (
+    !rotation ||
+    typeof rotation.x !== "number" ||
+    typeof rotation.y !== "number" ||
+    typeof rotation.z !== "number" ||
+    Number.isNaN(rotation.x) ||
+    Number.isNaN(rotation.y) ||
+    Number.isNaN(rotation.z)
+  ) {
+    return;
+  }
+
+  // Convert Kalidokit euler (radians) to quaternion
+  const euler = new THREE.Euler(rotation.x, rotation.y, rotation.z, "XYZ");
+  const targetQuat = new THREE.Quaternion().setFromEuler(euler);
+
+  // Just slerp the bone towards the target
+  bone.quaternion.slerp(targetQuat, lerpAmount * dampener);
+}
+
+/**
+ * Helper: smoothly apply hips position to a VRM bone.
+ * Kalidokit uses normalized coordinates; we only apply small offsets.
+ */
+function rigPosition(
+  bone: THREE.Object3D,
+  position: { x: number; y: number; z: number },
+  dampener = 1,
+  lerpAmount = 0.3
+) {
+  const target = new THREE.Vector3(
+    position.x,
+    position.y,
+    position.z
+  ).multiplyScalar(dampener);
+  bone.position.lerp(target, lerpAmount);
+}
+
+/**
+ * Draw pose landmarks on the 2D overlay canvas so that the user
+ * can see the tracking status.
+ */
+function drawPoseOnCanvas(
+  ctx: CanvasRenderingContext2D,
+  landmarks: Array<{ x: number; y: number; z: number }>
+) {
+  ctx.save();
+  ctx.strokeStyle = "#00ff00";
+  ctx.lineWidth = 2;
+
+  const connect = (i: number, j: number) => {
+    const a = landmarks[i];
+    const b = landmarks[j];
+    if (!a || !b) return;
+    ctx.beginPath();
+    ctx.moveTo(a.x * VIDEO_WIDTH, a.y * VIDEO_HEIGHT);
+    ctx.lineTo(b.x * VIDEO_WIDTH, b.y * VIDEO_HEIGHT);
+    ctx.stroke();
+  };
+
+  // Very small subset: arms + shoulders + hips.
+  const pairs: Array<[number, number]> = [
+    [11, 13],
+    [13, 15],
+    [12, 14],
+    [14, 16],
+    [11, 12],
+    [11, 23],
+    [12, 24],
+    [23, 24],
+  ];
+
+  pairs.forEach(([i, j]) => connect(i, j));
+
+  ctx.restore();
+}
+
+/**
+ * Create basic three.js scene + camera + renderer targeting the given canvas.
+ */
+function setupThree(canvas: HTMLCanvasElement): ThreeContext {
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: true,
+    alpha: true,
+  });
+  renderer.setSize(VIDEO_WIDTH, VIDEO_HEIGHT);
+  renderer.setPixelRatio(window.devicePixelRatio || 1);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+
+  const scene = new THREE.Scene();
+  scene.background = null;
+
+  const camera = new THREE.PerspectiveCamera(
+    30,
+    VIDEO_WIDTH / VIDEO_HEIGHT,
+    0.1,
+    1000
+  );
+  camera.position.set(0, 0, 3);
+  scene.add(camera);
+
+  // Simple lighting for VRM
+  const light = new THREE.DirectionalLight(0xffffff, 1);
+  light.position.set(1, 1, 1);
+  scene.add(light);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+
+  const clock = new THREE.Clock();
+
+  return { renderer, scene, camera, clock };
+}
+
+/**
+ * Load a VRM avatar using the dedicated VRM library (@pixiv/three-vrm).
+ */
+function loadVrm(
+  scene: THREE.Scene,
+  vrmRef: React.MutableRefObject<VRM | null>,
+  setStatus: React.Dispatch<React.SetStateAction<UiStatus>>
+): Promise<void> {
+  setStatus((s) => ({ ...s, vrm: "loading" }));
+
+  const loader = new GLTFLoader();
+  loader.register((parser) => new VRMLoaderPlugin(parser));
+
+  return new Promise<void>((resolve, reject) => {
+    loader.load(
+      "avatar.vrm",
+      (gltf) => {
+        const vrm = gltf.userData.vrm as VRM;
+
+        // Clean up VRM scene for better performance and orientation.
+        VRMUtils.removeUnnecessaryJoints(vrm.scene);
+        VRMUtils.rotateVRM0(vrm);
+
+        // Face the camera and position the avatar a bit lower.
+        vrm.scene.rotation.y = 0;
+        vrm.scene.position.set(0, -0.8, 0);
+
+        scene.add(vrm.scene);
+        vrmRef.current = vrm;
+
+        setStatus((s) => ({ ...s, vrm: "ready" }));
+        resolve();
+      },
+      undefined,
+      (error) => {
+        console.error("VRM load error", error);
+        setStatus((s) => ({
+          ...s,
+          vrm: "error",
+          error: `Failed to load VRM: ${String(error)}`,
+        }));
+        reject(error);
+      }
+    );
+  });
+}
+
+function getHumanoidBone(
+  humanoid: any,
+  boneName: string
+): THREE.Object3D | null {
+  if (!humanoid) return null;
+
+  // 推奨: 正規化されたボーン
+  if (typeof humanoid.getNormalizedBoneNode === "function") {
+    const n = humanoid.getNormalizedBoneNode(boneName);
+    if (n) return n;
+  }
+
+  // 次善: 生（raw）のボーン
+  if (typeof humanoid.getRawBoneNode === "function") {
+    const r = humanoid.getRawBoneNode(boneName);
+    if (r) return r;
+  }
+
+  // 互換性用: 古い API（deprecated）
+  if (typeof humanoid.getBoneNode === "function") {
+    const legacy = humanoid.getBoneNode(boneName);
+    if (legacy) return legacy;
+  }
+
+  return null;
+}
+
+
+/**
+ * Apply Kalidokit results to a VRM avatar.
+ * This uses the dedicated VRM humanoid rig from @pixiv/three-vrm.
+ */
+function applyKalidokitToVrm(vrm: VRM, results: any) {
+  const pose3D = results.poseWorldLandmarks;
+  const pose2D = results.poseLandmarks;
+  const faceLandmarks = results.faceLandmarks;
+  const leftHandLandmarks = results.leftHandLandmarks;
+  const rightHandLandmarks = results.rightHandLandmarks;
+
+  let riggedPose: any = null;
+  let riggedFace: any = null;
+  let riggedLeftHand: any = null;
+  let riggedRightHand: any = null;
+
+  // --- Pose (body) ---------------------------------------------------------
+  const has2D = isValidLandmarkArray(pose2D, 33);
+  const has3D = isValidLandmarkArray(pose3D, 33);
+
+  if (has2D) {
+    try {
+      const worldForSolve = has3D ? pose3D : pose2D;
+      riggedPose = Kalidokit.Pose.solve(worldForSolve, pose2D, {
+        runtime: "mediapipe",
+        video: undefined,
+      });
+    } catch (e) {
+      console.warn("Kalidokit Pose.solve failed", e);
+      riggedPose = null;
+    }
+  }
+
+  // --- Face ---------------------------------------------------------------
+  if (isValidLandmarkArray(faceLandmarks, 468)) {
+    try {
+      riggedFace = Kalidokit.Face.solve(faceLandmarks, {
+        runtime: "mediapipe",
+        video: undefined,
+      });
+    } catch (e) {
+      console.warn("Kalidokit Face.solve failed", e);
+      riggedFace = null;
+    }
+  }
+
+  // --- Hands --------------------------------------------------------------
+  if (isValidLandmarkArray(leftHandLandmarks, 21)) {
+    try {
+      riggedLeftHand = Kalidokit.Hand.solve(leftHandLandmarks, "Left");
+    } catch (e) {
+      console.warn("Kalidokit Hand.solve (Left) failed", e);
+      riggedLeftHand = null;
+    }
+  }
+
+  if (isValidLandmarkArray(rightHandLandmarks, 21)) {
+    try {
+      riggedRightHand = Kalidokit.Hand.solve(rightHandLandmarks, "Right");
+    } catch (e) {
+      console.warn("Kalidokit Hand.solve (Right) failed", e);
+      riggedRightHand = null;
+    }
+  }
+
+  // If nothing solved this frame, we do not modify the avatar.
+  if (!riggedPose && !riggedFace && !riggedLeftHand && !riggedRightHand) {
+    return;
+  }
+
+  const humanoid: any = (vrm as any).humanoid;
+  if (!humanoid) return;
+
+  // --- Body / pose --------------------------------------------------------
+  if (riggedPose) {
+    const hips = getHumanoidBone(humanoid, "hips");
+    if (hips && riggedPose.Hips) {
+      // Hips は position / rotation を持っている特別枠
+      if (riggedPose.Hips.position) {
+        rigPosition(hips, riggedPose.Hips.position, 1, 0.07);
+      }
+      if (riggedPose.Hips.rotation) {
+        rigRotation(hips, riggedPose.Hips.rotation, 1, 0.15);
+      }
+    }
+
+    const spine = getHumanoidBone(humanoid, "spine");
+    const chest = getHumanoidBone(humanoid, "chest");
+    if (spine && riggedPose.Spine) {
+      // Spine は {x,y,z} そのものが回転
+      rigRotation(spine, riggedPose.Spine, 0.25, 0.3);
+    }
+    if (chest && riggedPose.Chest) {
+      // Chest も {x,y,z}
+      rigRotation(chest, riggedPose.Chest, 0.25, 0.3);
+    }
+
+    const neck = getHumanoidBone(humanoid, "neck");
+    if (neck && (riggedPose.Neck || riggedPose.Head)) {
+      // Neck があれば Neck を優先、なければ Head を流用
+      const neckRot =
+        (riggedPose as any).Neck ||
+        (riggedPose as any).Head ||
+        null;
+      if (neckRot) {
+        rigRotation(neck, neckRot, 0.5, 0.3);
+      }
+    }
+
+    // --- Arms -------------------------------------------------------------
+    const leftUpperArm = getHumanoidBone(humanoid, "leftUpperArm");
+    const leftLowerArm = getHumanoidBone(humanoid, "leftLowerArm");
+    const leftHandFromPose = getHumanoidBone(humanoid, "leftHand");
+    const rightUpperArm = getHumanoidBone(humanoid, "rightUpperArm");
+    const rightLowerArm = getHumanoidBone(humanoid, "rightLowerArm");
+    const rightHandFromPose = getHumanoidBone(humanoid, "rightHand");
+
+    if (leftUpperArm && riggedPose.LeftUpperArm) {
+      rigRotation(leftUpperArm, riggedPose.LeftUpperArm, 1, 0.3);
+    }
+    if (leftLowerArm && riggedPose.LeftLowerArm) {
+      rigRotation(leftLowerArm, riggedPose.LeftLowerArm, 1, 0.3);
+    }
+    if (leftHandFromPose && riggedPose.LeftHand) {
+      rigRotation(leftHandFromPose, riggedPose.LeftHand, 1, 0.3);
+    }
+
+    if (rightUpperArm && riggedPose.RightUpperArm) {
+      rigRotation(rightUpperArm, riggedPose.RightUpperArm, 1, 0.3);
+    }
+    if (rightLowerArm && riggedPose.RightLowerArm) {
+      rigRotation(rightLowerArm, riggedPose.RightLowerArm, 1, 0.3);
+    }
+    if (rightHandFromPose && riggedPose.RightHand) {
+      rigRotation(rightHandFromPose, riggedPose.RightHand, 1, 0.3);
+    }
+
+    // --- Legs -------------------------------------------------------------
+    const leftUpperLeg = getHumanoidBone(humanoid, "leftUpperLeg");
+    const leftLowerLeg = getHumanoidBone(humanoid, "leftLowerLeg");
+    const leftFoot = getHumanoidBone(humanoid, "leftFoot");
+    const rightUpperLeg = getHumanoidBone(humanoid, "rightUpperLeg");
+    const rightLowerLeg = getHumanoidBone(humanoid, "rightLowerLeg");
+    const rightFoot = getHumanoidBone(humanoid, "rightFoot");
+
+    if (leftUpperLeg && riggedPose.LeftUpperLeg) {
+      rigRotation(leftUpperLeg, riggedPose.LeftUpperLeg, 1, 0.3);
+    }
+    if (leftLowerLeg && riggedPose.LeftLowerLeg) {
+      rigRotation(leftLowerLeg, riggedPose.LeftLowerLeg, 1, 0.3);
+    }
+    if (leftFoot && riggedPose.LeftFoot) {
+      rigRotation(leftFoot, riggedPose.LeftFoot, 1, 0.3);
+    }
+
+    if (rightUpperLeg && riggedPose.RightUpperLeg) {
+      rigRotation(rightUpperLeg, riggedPose.RightUpperLeg, 1, 0.3);
+    }
+    if (rightLowerLeg && riggedPose.RightLowerLeg) {
+      rigRotation(rightLowerLeg, riggedPose.RightLowerLeg, 1, 0.3);
+    }
+    if (rightFoot && riggedPose.RightFoot) {
+      rigRotation(rightFoot, riggedPose.RightFoot, 1, 0.3);
+    }
+  }
+
+  // --- Hands (Hand.solve → 手首の回転に使用) -----------------------------
+  if (riggedLeftHand) {
+    const leftHand = getHumanoidBone(humanoid, "leftHand");
+    // Kalidokit.Hand.solve の出力は LeftWrist / RightWrist など
+    const leftWristRot = (riggedLeftHand as any).LeftWrist;
+    if (leftHand && leftWristRot) {
+      rigRotation(leftHand, leftWristRot, 1, 0.3);
+    }
+  }
+
+  if (riggedRightHand) {
+    const rightHand = getHumanoidBone(humanoid, "rightHand");
+    const rightWristRot = (riggedRightHand as any).RightWrist;
+    if (rightHand && rightWristRot) {
+      rigRotation(rightHand, rightWristRot, 1, 0.3);
+    }
+  }
+
+  // --- Face (head rotation only) -----------------------------------------
+  if (riggedFace) {
+    const headBone = getHumanoidBone(humanoid, "head");
+
+    // README 構造に合わせて head.x/y/z を使う
+    const faceHead =
+      (riggedFace as any).head ||
+      // 旧バージョン対策: Head.rotation を持っている場合も許容
+      ((riggedFace as any).Head &&
+        (riggedFace as any).Head.rotation);
+
+    if (headBone && faceHead) {
+      rigRotation(headBone, faceHead, 0.7, 0.3);
+    }
+  }
+}
+
+
+/**
+ * Main React Native screen.
+ * On web:
+ *   Web camera -> MediaPipe Holistic -> Kalidokit -> VRM (via @pixiv/three-vrm).
+ */
+const HomeScreen: React.FC = () => {
+  const [status, setStatus] = useState<UiStatus>({
+    camera: "idle",
+    holistic: "idle",
+    tracking: "idle",
+    vrm: "idle",
+    error: undefined,
+  });
+
   const threeRef = useRef<ThreeContext | null>(null);
+  const vrmRef = useRef<VRM | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
-    if (Platform.OS !== "web") return;
+    if (Platform.OS !== "web") {
+      return;
+    }
 
     let cancelled = false;
+    let holistic: any = null;
+    let camera: any = null;
 
-    async function init() {
+    const video = document.getElementById("input-video") as
+      | HTMLVideoElement
+      | null;
+    const overlay = document.getElementById(
+      "landmark-overlay"
+    ) as HTMLCanvasElement | null;
+    const vrmCanvas = document.getElementById(
+      "vrm-canvas"
+    ) as HTMLCanvasElement | null;
+
+    if (!video || !overlay || !vrmCanvas) {
+      console.error("Required DOM elements are missing");
+      return;
+    }
+
+    overlay.width = VIDEO_WIDTH;
+    overlay.height = VIDEO_HEIGHT;
+    const ctx2d = overlay.getContext("2d");
+    if (!ctx2d) {
+      console.error("Failed to get 2D context for camera overlay");
+      return;
+    }
+
+    // --- Setup three.js scene for VRM --------------------------------------
+    const three = setupThree(vrmCanvas);
+    threeRef.current = three;
+
+    // --- Load VRM avatar (dedicated VRM library) ---------------------------
+    loadVrm(three.scene, vrmRef, setStatus).catch((err) => {
+      console.error("VRM load error", err);
+    });
+
+    // --- Camera + MediaPipe Holistic + Kalidokit pipeline -----------------
+    async function initCameraAndHolistic() {
       try {
-        setStatus((s) => ({ ...s, tf: "initializing" }));
+        setStatus((s) => ({ ...s, camera: "initializing", holistic: "idle" }));
 
-        await tf.ready();
-        await tf.setBackend("webgl");
-        setStatus((s) => ({ ...s, tf: "ready" }));
+        await loadCameraUtilsFromCdn();
+        const HolisticCtor = await loadHolisticFromCdn();
 
-        // --- Camera -------------------------------------------------------
-        setStatus((s) => ({ ...s, camera: "initializing" }));
-        const video = document.getElementById("camera-video") as HTMLVideoElement | null;
-        const overlay = document.getElementById("camera-overlay") as HTMLCanvasElement | null;
+        if (cancelled) return;
 
-        if (!video || !overlay) {
-          throw new Error("Camera DOM elements not found");
-        }
-
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: {
-            width: VIDEO_WIDTH,
-            height: VIDEO_HEIGHT,
-          },
-        });
-        streamRef.current = stream;
-        video.srcObject = stream;
-
-        await new Promise<void>((resolve) => {
-          video.onloadedmetadata = () => {
-            video
-              .play()
-              .then(() => resolve())
-              .catch(() => resolve());
-          };
+        holistic = new HolisticCtor({
+          locateFile: (file: string) =>
+            `https://cdn.jsdelivr.net/npm/@mediapipe/holistic@0.5/${file}`,
         });
 
-        overlay.width = VIDEO_WIDTH;
-        overlay.height = VIDEO_HEIGHT;
-
-        setStatus((s) => ({ ...s, camera: "ready" }));
-
-        // --- Detector ------------------------------------------------------
-        setStatus((s) => ({ ...s, detector: "initializing" }));
-
-        const detector = await posedetection.createDetector(
-          posedetection.SupportedModels.MoveNet,
-          {
-            modelType: posedetection.movenet.modelType.SINGLEPOSE_THUNDER,
-            enableSmoothing: true,
-          } as posedetection.MoveNetModelConfig,
-        );
-        detectorRef.current = detector;
-        setStatus((s) => ({ ...s, detector: "ready" }));
-
-        // --- Three.js & VRM -----------------------------------------------
-        setStatus((s) => ({ ...s, vrm: "initializing" }));
-
-        const vrmCanvas = document.getElementById("vrm-canvas") as HTMLCanvasElement | null;
-        if (!vrmCanvas) {
-          throw new Error("VRM canvas not found");
-        }
-
-        const renderer = new THREE.WebGLRenderer({
-          canvas: vrmCanvas,
-          alpha: true,
-          antialias: true,
+        holistic.setOptions({
+          modelComplexity: 1,
+          smoothLandmarks: true,
+          enableSegmentation: false,
+          refineFaceLandmarks: true,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5,
         });
-        renderer.setSize(VRM_WIDTH, VRM_HEIGHT);
-        renderer.setPixelRatio(window.devicePixelRatio || 1);
 
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0xffffff);
-
-        const camera = new THREE.PerspectiveCamera(
-          30,
-          VRM_WIDTH / VRM_HEIGHT,
-          0.1,
-          20,
-        );
-        camera.position.set(0, 0.3, 3.5);
-
-        const light = new THREE.DirectionalLight(0xffffff, 1);
-        light.position.set(0, 3, 5);
-        scene.add(light);
-        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-
-        const clock = new THREE.Clock();
-        threeRef.current = { renderer, scene, camera, clock };
-
-        // Load VRM
-        const loader = new GLTFLoader();
-        loader.register((parser) => new VRMLoaderPlugin(parser));
-
-        loader.load(
-          "avatar.vrm",
-          (gltf) => {
-            if (cancelled) return;
-            const vrm = gltf.userData.vrm as VRM;
-
-            VRMUtils.removeUnnecessaryJoints(vrm.scene);
-            VRMUtils.rotateVRM0(vrm);
-
-            // Face the camera
-            vrm.scene.rotation.y = 0;
-            vrm.scene.position.set(0, -0.8, 0);
-
-            scene.add(vrm.scene);
-            vrmRef.current = vrm;
-
-            cacheInitialBoneRotations(vrmRef.current, bonesRef.current);
-
-            setStatus((s) => ({ ...s, vrm: "ready" }));
-          },
-          undefined,
-          (error) => {
-            console.error("VRM load error", error);
-            setStatus((s) => ({ ...s, vrm: "error", error: String(error) }));
-          },
-        );
-
-        const ctx2d = overlay.getContext("2d");
-        if (!ctx2d) {
-          throw new Error("Failed to get 2D context");
-        }
-
-        // --- Main render / tracking loop ----------------------------------
-        async function loop() {
+        holistic.onResults((results: any) => {
           if (cancelled) return;
 
-          const det = detectorRef.current;
-          const vrm = vrmRef.current;
-          const three = threeRef.current;
+          if (ctx2d) {
+            ctx2d.save();
+            ctx2d.clearRect(0, 0, overlay.width, overlay.height);
+            if (
+              results.poseLandmarks &&
+              Array.isArray(results.poseLandmarks) &&
+              results.poseLandmarks.length
+            ) {
+              drawPoseOnCanvas(ctx2d, results.poseLandmarks);
+            }
+            ctx2d.restore();
+          }
 
-          if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && det) {
+          if (vrmRef.current) {
             try {
-              const poses = await det.estimatePoses(video, {
-                maxPoses: 1,
-                // We do NOT flip horizontally here; both video and overlay
-                // are mirrored by CSS, so model works in the original space.
-                flipHorizontal: false,
-              });
-
-              if (poses && poses.length > 0) {
-                const pose = poses[0];
-                if (pose.keypoints) {
-                  drawSkeletonOnCanvas(ctx2d, pose.keypoints);
-                  setStatus((s) => ({ ...s, tracking: "tracking" }));
-
-                  if (vrm) {
-                    try {
-                      applyPoseToVRMFromKeypoints(
-                        vrm,
-                        pose.keypoints,
-                        bonesRef.current,
-                      );
-                    } catch (e) {
-                      console.error("Pose estimation / retargeting failed", e);
-                      setStatus((s) => ({
-                        ...s,
-                        error: `Pose estimation / retargeting failed: ${String(e)}`,
-                      }));
-                    }
-                  }
-                }
-              } else {
-                setStatus((s) => ({ ...s, tracking: "no person" }));
-                ctx2d.clearRect(0, 0, overlay.width, overlay.height);
-                if (vrm) {
-                  resetBonesToInitial(vrm, bonesRef.current);
-                }
-              }
-            } catch (e) {
-              console.error("Pose estimation failed", e);
+              applyKalidokitToVrm(vrmRef.current, results);
+              setStatus((s) => ({ ...s, tracking: "running" }));
+            } catch (err) {
+              console.warn("Pose / retargeting failed", err);
               setStatus((s) => ({
                 ...s,
                 tracking: "error",
-                error: `Pose estimation failed: ${String(e)}`,
+                error: "Kalidokit pose / retargeting error",
               }));
             }
           }
+        });
 
-          if (three && vrmRef.current) {
-            const delta = three.clock.getDelta();
-            vrmRef.current.update(delta);
-            three.renderer.render(three.scene, three.camera);
-          }
+        setStatus((s) => ({ ...s, holistic: "initializing" }));
 
-          requestAnimationFrame(loop);
+        const CameraCtor = (window as any).Camera;
+        if (!CameraCtor) {
+          throw new Error("MediaPipe Camera helper is not available");
         }
 
-        requestAnimationFrame(loop);
-      } catch (e) {
-        console.error("Initialization error", e);
+        camera = new CameraCtor(video, {
+          onFrame: async () => {
+            if (cancelled) return;
+            try {
+              await holistic.send({ image: video });
+            } catch (err) {
+              console.warn("Holistic send failed", err);
+            }
+          },
+          width: VIDEO_WIDTH,
+          height: VIDEO_HEIGHT,
+        });
+
         setStatus((s) => ({
           ...s,
-          tf: s.tf === "idle" ? "error" : s.tf,
-          camera: s.camera === "idle" ? "error" : s.camera,
-          detector: s.detector === "idle" ? "error" : s.detector,
-          vrm: s.vrm === "idle" ? "error" : s.vrm,
-          error: `Initialization error: ${String(e)}`,
+          camera: "running",
+          holistic: "running",
+          tracking: "running",
+        }));
+
+        await camera.start();
+      } catch (err: any) {
+        console.error("Failed to initialize tracking / 3D", err);
+        setStatus((s) => ({
+          ...s,
+          camera: "error",
+          holistic: "error",
+          tracking: "error",
+          error: String(err?.message || err),
         }));
       }
     }
 
-    init();
+    initCameraAndHolistic();
+
+    // --- Three.js render loop ---------------------------------------------
+    const renderLoop = () => {
+      if (cancelled || !threeRef.current) return;
+
+      const { renderer, scene, camera: threeCamera, clock } = threeRef.current;
+      const deltaTime = clock.getDelta();
+
+      if (vrmRef.current) {
+        vrmRef.current.update(deltaTime);
+      }
+
+      renderer.render(scene, threeCamera);
+      requestAnimationFrame(renderLoop);
+    };
+
+    requestAnimationFrame(renderLoop);
 
     return () => {
       cancelled = true;
+
+      if (camera && typeof camera.stop === "function") {
+        try {
+          camera.stop();
+        } catch {
+          // ignore
+        }
+      }
+
+      if (holistic && typeof holistic.close === "function") {
+        try {
+          holistic.close();
+        } catch {
+          // ignore
+        }
+      }
+
       const stream = streamRef.current;
       if (stream) {
-        stream.getTracks().forEach((t) => t.stop());
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
       }
-      const three = threeRef.current;
-      if (three) {
-        three.renderer.dispose();
+
+      if (threeRef.current) {
+        threeRef.current.renderer.dispose();
+        threeRef.current = null;
       }
     };
   }, []);
 
-  // Native platforms: show a simple message
   if (Platform.OS !== "web") {
     return (
-      <View style={styles.nativeContainer}>
-        <Text style={styles.title}>VRM Pose Tracking (Web only)</Text>
-        <Text style={styles.statusText}>
-          This demo is intended to run in a web browser (Expo Web).
+      <View style={styles.container}>
+        <Text style={styles.title}>
+          Web camera to VRM demo is only supported on the web.
         </Text>
       </View>
     );
@@ -651,126 +725,110 @@ export default function HomeScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Web Camera → VRM Pose Retargeting</Text>
+      <Text style={styles.title}>Web camera → VRM avatar (Kalidokit)</Text>
+      <Text style={styles.subtitle}>
+        Your webcam pose is tracked with MediaPipe Holistic and retargeted to
+        the VRM avatar using Kalidokit and the dedicated VRM library
+        @pixiv/three-vrm.
+      </Text>
 
-      <WebCameraAndVrmView />
+      <View style={styles.row}>
+        <View style={styles.column}>
+          <Text style={styles.sectionTitle}>Camera / pose preview</Text>
+          <video
+            id="input-video"
+            style={styles.video as any}
+            autoPlay
+            playsInline
+            muted
+          />
+          <canvas
+            id="landmark-overlay"
+            style={styles.overlay as any}
+            width={VIDEO_WIDTH}
+            height={VIDEO_HEIGHT}
+          />
+        </View>
 
-      <View style={styles.statusRow}>
-        <View style={styles.statusBox}>
-          <Text style={styles.statusLabel}>TFJS</Text>
-          <Text style={styles.statusText}>{status.tf}</Text>
-        </View>
-        <View style={styles.statusBox}>
-          <Text style={styles.statusLabel}>Camera</Text>
-          <Text style={styles.statusText}>{status.camera}</Text>
-        </View>
-        <View style={styles.statusBox}>
-          <Text style={styles.statusLabel}>Detector</Text>
-          <Text style={styles.statusText}>{status.detector}</Text>
-        </View>
-        <View style={styles.statusBox}>
-          <Text style={styles.statusLabel}>Tracking</Text>
-          <Text style={styles.statusText}>{status.tracking}</Text>
-        </View>
-        <View style={styles.statusBox}>
-          <Text style={styles.statusLabel}>VRM</Text>
-          <Text style={styles.statusText}>{status.vrm}</Text>
+        <View style={styles.column}>
+          <Text style={styles.sectionTitle}>VRM avatar</Text>
+          <canvas id="vrm-canvas" style={styles.vrmCanvas as any} />
         </View>
       </View>
 
-      {status.error ? <Text style={styles.errorText}>{status.error}</Text> : null}
+      <View style={styles.statusBox}>
+        <Text style={styles.statusLine}>Camera: {status.camera}</Text>
+        <Text style={styles.statusLine}>Holistic: {status.holistic}</Text>
+        <Text style={styles.statusLine}>Tracking: {status.tracking}</Text>
+        <Text style={styles.statusLine}>VRM: {status.vrm}</Text>
+        {status.error ? (
+          <Text style={styles.statusError}>{status.error}</Text>
+        ) : null}
+      </View>
     </ScrollView>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
     padding: 16,
-    paddingBottom: 32,
-    backgroundColor: "#fafafa",
-  },
-  nativeContainer: {
-    flex: 1,
-    padding: 16,
-    backgroundColor: "#fafafa",
-    justifyContent: "center",
-    alignItems: "center",
+    flexGrow: 1,
+    backgroundColor: "#ffffff",
   },
   title: {
     fontSize: 20,
     fontWeight: "600",
-    marginBottom: 12,
-    textAlign: "center",
+    marginBottom: 8,
   },
-  cameraRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "flex-start",
-    gap: 16,
-  } as any,
-  cameraBox: {
-    position: "relative",
-    width: VIDEO_WIDTH,
-    height: VIDEO_HEIGHT,
-    backgroundColor: "#000",
-    overflow: "hidden",
+  subtitle: {
+    fontSize: 14,
+    color: "#555555",
+    marginBottom: 16,
   },
-  video: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: "100%",
-    height: "100%",
-    objectFit: "cover",
-    transform: "scaleX(-1)", // mirror to behave like a webcam
-  },
-  cameraOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: "100%",
-    height: "100%",
-    pointerEvents: "none",
-    // Mirror overlay as well so bones match the mirrored video
-    transform: "scaleX(-1)",
-    transformOrigin: "center",
-  },
-  vrmBox: {
-    width: VRM_WIDTH,
-    height: VRM_HEIGHT,
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#ddd",
-  },
-  vrmCanvas: {
-    width: "100%",
-    height: "100%",
-  },
-  statusRow: {
-    marginTop: 16,
+  row: {
     flexDirection: "row",
     flexWrap: "wrap",
-    justifyContent: "center",
-    gap: 8,
+    gap: 16,
   } as any,
+  column: {
+    flex: 1,
+    minWidth: 320,
+  } as any,
+  video: {
+    width: VIDEO_WIDTH,
+    height: VIDEO_HEIGHT,
+    backgroundColor: "#000000",
+  },
+  overlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: VIDEO_WIDTH,
+    height: VIDEO_HEIGHT,
+    pointerEvents: "none",
+  },
+  vrmCanvas: {
+    width: VIDEO_WIDTH,
+    height: VIDEO_HEIGHT,
+    backgroundColor: "#f0f0f0",
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "500",
+    marginBottom: 8,
+  },
   statusBox: {
-    minWidth: 100,
-    padding: 8,
-    borderRadius: 4,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#eee",
+    marginTop: 16,
   },
-  statusLabel: {
+  statusLine: {
     fontSize: 12,
-    fontWeight: "600",
+    color: "#333333",
   },
-  statusText: {
+  statusError: {
     fontSize: 12,
-  },
-  errorText: {
-    marginTop: 12,
-    color: "#d32f2f",
-    textAlign: "center",
+    color: "#b00020",
+    marginTop: 4,
   },
 });
+
+export default HomeScreen;
