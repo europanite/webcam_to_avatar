@@ -5,8 +5,8 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
 import { VRM, VRMUtils, VRMLoaderPlugin } from "@pixiv/three-vrm";
 import * as Kalidokit from "kalidokit";
 
-const VIDEO_WIDTH = 640;
-const VIDEO_HEIGHT = 480;
+const VIDEO_WIDTH = 480;
+const VIDEO_HEIGHT = 640;
 
 interface ThreeContext {
   renderer: THREE.WebGLRenderer;
@@ -131,7 +131,12 @@ function rigRotation(
   }
 
   // Convert Kalidokit euler (radians) to quaternion
-  const euler = new THREE.Euler(rotation.x, rotation.y, -rotation.z, "XYZ");
+  const euler = new THREE.Euler(
+    rotation.x, 
+    rotation.y, 
+    rotation.z, 
+    "XYZ"
+  );
   const targetQuat = new THREE.Quaternion().setFromEuler(euler);
 
   // Just slerp the bone towards the target
@@ -146,7 +151,7 @@ function rigPosition(
   bone: THREE.Object3D,
   position: { x: number; y: number; z: number },
   dampener = 1,
-  lerpAmount = 0.3
+  lerpAmount = 0.1
 ) {
   const target = new THREE.Vector3(
     position.x,
@@ -212,19 +217,28 @@ function setupThree(canvas: HTMLCanvasElement): ThreeContext {
   scene.background = null;
 
   const camera = new THREE.PerspectiveCamera(
-    30,
-    VIDEO_WIDTH / VIDEO_HEIGHT,
-    0.1,
-    1000
+    60, // fov: The vertical field of view. Default is 50.
+    VIDEO_WIDTH / VIDEO_HEIGHT, // 	The aspect ratio. Default is 1.
+    0.1, //	The camera's near plane.Default is 0.1.
+    2000, // The camera's far plane. Default is 2000.
   );
-  camera.position.set(0, 0, 3);
+  camera.position.set(
+    0, 
+    0,
+    0
+  );
+  camera.lookAt(new THREE.Vector3(
+    0,
+    0,
+    1
+  ));
   scene.add(camera);
 
   // Simple lighting for VRM
   const light = new THREE.DirectionalLight(0xffffff, 1);
   light.position.set(1, 1, 1);
   scene.add(light);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+  scene.add(new THREE.AmbientLight(0xffffff, 1));
 
   const clock = new THREE.Clock();
 
@@ -246,7 +260,7 @@ function loadVrm(
 
   return new Promise<void>((resolve, reject) => {
     loader.load(
-      "avatar.vrm",
+      "avatar_D_00.vrm",
       (gltf) => {
         const vrm = gltf.userData.vrm as VRM;
 
@@ -256,7 +270,10 @@ function loadVrm(
 
         // Face the camera and position the avatar a bit lower.
         vrm.scene.rotation.y = 0;
-        vrm.scene.position.set(0, -0.8, 0);
+        vrm.scene.position.set(
+          0, 
+          0,
+          2);
 
         scene.add(vrm.scene);
         vrmRef.current = vrm;
