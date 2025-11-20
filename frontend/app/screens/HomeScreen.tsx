@@ -284,19 +284,19 @@ function getHumanoidBone(
 ): THREE.Object3D | null {
   if (!humanoid) return null;
 
-  // 推奨: 正規化されたボーン
+  // normalized born
   if (typeof humanoid.getNormalizedBoneNode === "function") {
     const n = humanoid.getNormalizedBoneNode(boneName);
     if (n) return n;
   }
 
-  // 次善: 生（raw）のボーン
+  // raw born
   if (typeof humanoid.getRawBoneNode === "function") {
     const r = humanoid.getRawBoneNode(boneName);
     if (r) return r;
   }
 
-  // 互換性用: 古い API（deprecated）
+  // old APIs（deprecated）
   if (typeof humanoid.getBoneNode === "function") {
     const legacy = humanoid.getBoneNode(boneName);
     if (legacy) return legacy;
@@ -383,7 +383,7 @@ function applyKalidokitToVrm(vrm: VRM, results: any) {
   if (riggedPose) {
     const hips = getHumanoidBone(humanoid, "hips");
     if (hips && riggedPose.Hips) {
-      // Hips は position / rotation を持っている特別枠
+      // Hips have position / rotation 
       if (riggedPose.Hips.position) {
         rigPosition(hips, riggedPose.Hips.position, 1, 0.07);
       }
@@ -395,17 +395,17 @@ function applyKalidokitToVrm(vrm: VRM, results: any) {
     const spine = getHumanoidBone(humanoid, "spine");
     const chest = getHumanoidBone(humanoid, "chest");
     if (spine && riggedPose.Spine) {
-      // Spine は {x,y,z} そのものが回転
+      // Spine {x,y,z} 
       rigRotation(spine, riggedPose.Spine, 0.25, 0.3);
     }
     if (chest && riggedPose.Chest) {
-      // Chest も {x,y,z}
+      // Chest  {x,y,z}
       rigRotation(chest, riggedPose.Chest, 0.25, 0.3);
     }
 
     const neck = getHumanoidBone(humanoid, "neck");
     if (neck && (riggedPose.Neck || riggedPose.Head)) {
-      // Neck があれば Neck を優先、なければ Head を流用
+      // Neck or Head
       const neckRot =
         (riggedPose as any).Neck ||
         (riggedPose as any).Head ||
@@ -472,10 +472,10 @@ function applyKalidokitToVrm(vrm: VRM, results: any) {
     }
   }
 
-  // --- Hands (Hand.solve → 手首の回転に使用) -----------------------------
+  // --- Hands (Hand.solve → wrist rotation) -----------------------------
   if (riggedLeftHand) {
     const leftHand = getHumanoidBone(humanoid, "leftHand");
-    // Kalidokit.Hand.solve の出力は LeftWrist / RightWrist など
+    // Kalidokit.Hand.solve: LeftWrist / RightWrist
     const leftWristRot = (riggedLeftHand as any).LeftWrist;
     if (leftHand && leftWristRot) {
       rigRotation(leftHand, leftWristRot, 1, 0.3);
@@ -494,10 +494,8 @@ function applyKalidokitToVrm(vrm: VRM, results: any) {
   if (riggedFace) {
     const headBone = getHumanoidBone(humanoid, "head");
 
-    // README 構造に合わせて head.x/y/z を使う
     const faceHead =
       (riggedFace as any).head ||
-      // 旧バージョン対策: Head.rotation を持っている場合も許容
       ((riggedFace as any).Head &&
         (riggedFace as any).Head.rotation);
 
@@ -736,7 +734,6 @@ const HomeScreen: React.FC = () => {
         <View style={styles.column}>
           <Text style={styles.sectionTitle}>Camera / pose preview</Text>
 
-          {/* ★ 追加：鏡像用ラッパー */}
           <View style={styles.cameraMirrorWrapper}>
             <video
               id="input-video"
@@ -756,7 +753,6 @@ const HomeScreen: React.FC = () => {
 
         <View style={styles.column}>
           <Text style={styles.sectionTitle}>VRM avatar</Text>
-          {/* ★ 追加：鏡像用ラッパー */}
             <canvas id="vrm-canvas" style={styles.vrmCanvas as any} />
         </View>
       </View>
@@ -839,14 +835,6 @@ const styles = StyleSheet.create({
     height: VIDEO_HEIGHT,
     position: "relative",
     overflow: "hidden",
-    // ★ 横方向だけ反転（鏡像）
-    transform: [{ scaleX: -1 }],
-  } as any,
-
-  vrmMirrorWrapper: {
-    width: VIDEO_WIDTH,
-    height: VIDEO_HEIGHT,
-    // VRM も見た目だけ鏡像にする
     transform: [{ scaleX: -1 }],
   } as any,
 });
