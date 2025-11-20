@@ -131,7 +131,7 @@ function rigRotation(
   }
 
   // Convert Kalidokit euler (radians) to quaternion
-  const euler = new THREE.Euler(rotation.x, rotation.y, rotation.z, "XYZ");
+  const euler = new THREE.Euler(rotation.x, rotation.y, -rotation.z, "XYZ");
   const targetQuat = new THREE.Quaternion().setFromEuler(euler);
 
   // Just slerp the bone towards the target
