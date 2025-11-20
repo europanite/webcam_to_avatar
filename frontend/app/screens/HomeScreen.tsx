@@ -735,24 +735,29 @@ const HomeScreen: React.FC = () => {
       <View style={styles.row}>
         <View style={styles.column}>
           <Text style={styles.sectionTitle}>Camera / pose preview</Text>
-          <video
-            id="input-video"
-            style={styles.video as any}
-            autoPlay
-            playsInline
-            muted
-          />
-          <canvas
-            id="landmark-overlay"
-            style={styles.overlay as any}
-            width={VIDEO_WIDTH}
-            height={VIDEO_HEIGHT}
-          />
+
+          {/* ★ 追加：鏡像用ラッパー */}
+          <View style={styles.cameraMirrorWrapper}>
+            <video
+              id="input-video"
+              style={styles.video as any}
+              autoPlay
+              playsInline
+              muted
+            />
+            <canvas
+              id="landmark-overlay"
+              style={styles.overlay as any}
+              width={VIDEO_WIDTH}
+              height={VIDEO_HEIGHT}
+            />
+          </View>
         </View>
 
         <View style={styles.column}>
           <Text style={styles.sectionTitle}>VRM avatar</Text>
-          <canvas id="vrm-canvas" style={styles.vrmCanvas as any} />
+          {/* ★ 追加：鏡像用ラッパー */}
+            <canvas id="vrm-canvas" style={styles.vrmCanvas as any} />
         </View>
       </View>
 
@@ -829,6 +834,21 @@ const styles = StyleSheet.create({
     color: "#b00020",
     marginTop: 4,
   },
+  cameraMirrorWrapper: {
+    width: VIDEO_WIDTH,
+    height: VIDEO_HEIGHT,
+    position: "relative",
+    overflow: "hidden",
+    // ★ 横方向だけ反転（鏡像）
+    transform: [{ scaleX: -1 }],
+  } as any,
+
+  vrmMirrorWrapper: {
+    width: VIDEO_WIDTH,
+    height: VIDEO_HEIGHT,
+    // VRM も見た目だけ鏡像にする
+    transform: [{ scaleX: -1 }],
+  } as any,
 });
 
 export default HomeScreen;
