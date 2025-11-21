@@ -4,6 +4,7 @@ import {
   ScrollView, 
   StyleSheet, 
   TouchableOpacity,
+  Linking,
   Text, 
   View } from "react-native";
 import * as THREE from "three";
