@@ -23,7 +23,7 @@
       "edgeToEdgeEnabled": true
     },
     "experiments": {
-      "baseUrl": "/frontend_template"
+      "baseUrl": "/frontend_metro_template"
     },
     "web": {
       "favicon": "./assets/favicon.png",

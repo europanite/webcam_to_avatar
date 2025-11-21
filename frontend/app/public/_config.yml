@@ -1,6 +1,6 @@
-title: "frontend_template"
-description: "A Template For Frontend Development."
-baseurl: "/frontend_template"
+title: "frontend_metro_template"
+description: "A Template For Frontend Metro Development."
+baseurl: "/frontend_metro_template"
 url: "https://europanite.github.io"
 theme: minima
 markdown: kramdown

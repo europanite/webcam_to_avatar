@@ -6,8 +6,5 @@
     "lib": ["esnext", "dom"],
     "types": ["jest", "@testing-library/jest-dom", "node"],
     "baseUrl": ".",
-    "paths": {
-      "pyodide": ["node_modules/pyodide/pyodide"]
-    }
   }
 }
