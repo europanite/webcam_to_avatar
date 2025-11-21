@@ -1,5 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { 
+  Platform, 
+  ScrollView, 
+  StyleSheet, 
+  TouchableOpacity,
+  Text, 
+  View } from "react-native";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
 import { VRM, VRMUtils, VRMLoaderPlugin } from "@pixiv/three-vrm";
