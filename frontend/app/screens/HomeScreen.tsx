@@ -740,13 +740,7 @@ const HomeScreen: React.FC = () => {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Web camera → VRM avatar (Kalidokit)</Text>
-      <Text style={styles.subtitle}>
-        Your webcam pose is tracked with MediaPipe Holistic and retargeted to
-        the VRM avatar using Kalidokit and the dedicated VRM library
-        @pixiv/three-vrm.
-      </Text>
-
+      <Text style={styles.title}>WebCam_to_VRM</Text>
       <View style={styles.row}>
         <View style={styles.column}>
           <Text style={styles.sectionTitle}>Camera / pose preview</Text>
@@ -791,16 +785,17 @@ const styles = StyleSheet.create({
   container: {
     padding: 16,
     flexGrow: 1,
-    backgroundColor: "#ffffff",
+    backgroundColor: "#000000ff",
   },
   title: {
     fontSize: 20,
     fontWeight: "600",
     marginBottom: 8,
+    color: "#ffffffff",
   },
   subtitle: {
     fontSize: 14,
-    color: "#555555",
+    color: "#ffffffff",
     marginBottom: 16,
   },
   row: {
@@ -815,7 +810,7 @@ const styles = StyleSheet.create({
   video: {
     width: VIDEO_WIDTH,
     height: VIDEO_HEIGHT,
-    backgroundColor: "#000000",
+    backgroundColor: "#ffffffff",
   },
   overlay: {
     position: "absolute",
@@ -840,7 +835,7 @@ const styles = StyleSheet.create({
   },
   statusLine: {
     fontSize: 12,
-    color: "#333333",
+    color: "#ffffffff",
   },
   statusError: {
     fontSize: 12,
