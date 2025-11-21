@@ -2,7 +2,7 @@
 
 [PlayGround](https://europanite.github.io/vre/)
 
-A Playground for controling a vroid avatar with detecting a user motion. 
+A Playground to controle a vroid avatar with user pose estimation.
 
 ---
 
@@ -25,7 +25,7 @@ A Playground for controling a vroid avatar with detecting a user motion.
 
 ```bash
 # set environment variables:
-export REACT_NATIVE_PACKAGER_HOSTNAME=192.168.3.6
+export REACT_NATIVE_PACKAGER_HOSTNAME=${YOUR_HOST}
 
 # Build the image
 docker compose build
