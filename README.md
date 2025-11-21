@@ -1,8 +1,12 @@
-# [vre](https://github.com/europanite/vre "vre")
+# [WebCam to VRM](https://github.com/europanite/vre "WebCam to VRM")
 
-[PlayGround](https://europanite.github.io/vre/)
+[![GitHub Pages](https://github.com/europanite/webcam_to_vrm/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/europanite/webcam_to_vrm/actions/workflows/deploy-pages.yml)
 
-A Playground for controling a vroid avatar with detecting a user motion. 
+!["web_ui"](./assets/images/web_ui.png)
+
+[PlayGround](https://europanite.github.io/webcam_to_vrm/)
+
+A Playground to controle a vroid avatar with user pose estimation.
 
 ---
 
@@ -25,7 +29,7 @@ A Playground for controling a vroid avatar with detecting a user motion.
 
 ```bash
 # set environment variables:
-export REACT_NATIVE_PACKAGER_HOSTNAME=192.168.3.6
+export REACT_NATIVE_PACKAGER_HOSTNAME=${YOUR_HOST}
 
 # Build the image
 docker compose build
