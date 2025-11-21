@@ -1,5 +1,9 @@
 # [vre](https://github.com/europanite/vre "vre")
 
+[![GitHub Pages](https://github.com/europanite/webcam_to_vrm/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/europanite/webcam_to_vrm/actions/workflows/deploy-pages.yml)
+
+!["web_ui"](./assets/images/web_ui.png)
+
 [PlayGround](https://europanite.github.io/vre/)
 
 A Playground to controle a vroid avatar with user pose estimation.
