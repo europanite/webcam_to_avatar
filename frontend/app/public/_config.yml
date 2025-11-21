@@ -1,6 +1,6 @@
-title: "webcam_to_vrm"
+title: "webcam_to_avatar"
 description: "A Playground to controle a vroid avatar with user pose estimation."
-baseurl: "/webcam_to_vrm"
+baseurl: "/webcam_to_avatar"
 url: "https://europanite.github.io"
 theme: minima
 markdown: kramdown
