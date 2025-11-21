@@ -738,9 +738,24 @@ const HomeScreen: React.FC = () => {
     );
   }
 
+  const REPO_URL = "https://github.com/europanite/webcam_to_avatar";
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>WebCam to VRM</Text>
+      <TouchableOpacity onPress={() => Linking.openURL(REPO_URL)}>
+        <Text
+          style={{
+            fontSize: 24,
+            fontWeight: "800",
+            marginBottom: 12,
+            color: "#ffffffff",
+            textDecorationLine: "underline",
+          }}
+        >
+          WebCam to VRM
+        </Text>
+      </TouchableOpacity>
+
       <View style={styles.row}>
         <View style={styles.column}>
           <Text style={styles.sectionTitle}>Camera / pose preview</Text>
