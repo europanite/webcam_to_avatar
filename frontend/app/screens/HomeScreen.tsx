@@ -740,7 +740,7 @@ const HomeScreen: React.FC = () => {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>WebCam_to_VRM</Text>
+      <Text style={styles.title}>WebCam to VRM</Text>
       <View style={styles.row}>
         <View style={styles.column}>
           <Text style={styles.sectionTitle}>Camera / pose preview</Text>

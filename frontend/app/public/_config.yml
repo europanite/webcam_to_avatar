@@ -1,6 +1,6 @@
-title: "frontend_metro_template"
-description: "A Template For Frontend Metro Development."
-baseurl: "/frontend_metro_template"
+title: "webcam_to_vrm"
+description: "A Playground to controle a vroid avatar with user pose estimation."
+baseurl: "/webcam_to_vrm"
 url: "https://europanite.github.io"
 theme: minima
 markdown: kramdown
