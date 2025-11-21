@@ -23,7 +23,7 @@
       "edgeToEdgeEnabled": true
     },
     "experiments": {
-      "baseUrl": "/webcam_to_vrm"
+      "baseUrl": "/webcam_to_avatar"
     },
     "web": {
       "favicon": "./assets/favicon.png",
