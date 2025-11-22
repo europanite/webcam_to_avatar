@@ -572,7 +572,6 @@ const HomeScreen: React.FC = () => {
     overlayCanvas.width = VIDEO_WIDTH;
     overlayCanvas.height = VIDEO_HEIGHT;
     const ctx2d = overlayCanvas.getContext("2d");
-
     if (!ctx2d) {
       console.error("Failed to get 2D context for camera overlay");
       return;
@@ -616,7 +615,20 @@ const HomeScreen: React.FC = () => {
 
           if (ctx2d) {
             ctx2d.save();
-            ctx2d.clearRect(0, 0, overlay.width, overlay.height);
+
+            if (ctx2d) {
+              ctx2d.save();
+              ctx2d.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+              if (
+                results.poseLandmarks &&
+                Array.isArray(results.poseLandmarks) &&
+                results.poseLandmarks.length
+              ) {
+                drawPoseOnCanvas(ctx2d, results.poseLandmarks);
+              }
+              ctx2d.restore();
+            }
+
             if (
               results.poseLandmarks &&
               Array.isArray(results.poseLandmarks) &&
