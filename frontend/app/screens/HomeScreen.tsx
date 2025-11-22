@@ -218,7 +218,7 @@ function setupThree(canvas: HTMLCanvasElement): ThreeContext {
   });
   renderer.setSize(VIDEO_WIDTH, VIDEO_HEIGHT);
   renderer.setPixelRatio(window.devicePixelRatio || 1);
-  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
   scene.background = null;
@@ -263,24 +263,20 @@ function loadVrm(
   setStatus((s) => ({ ...s, vrm: "loading" }));
 
   const loader = new GLTFLoader();
-  loader.register((parser) => new VRMLoaderPlugin(parser));
+  loader.register((parser: any) => new VRMLoaderPlugin(parser));
 
   return new Promise<void>((resolve, reject) => {
     loader.load(
       "avatar_D_00.vrm",
-      (gltf) => {
+      (gltf: any) => {
         const vrm = gltf.userData.vrm as VRM;
 
         // Clean up VRM scene for better performance and orientation.
         VRMUtils.removeUnnecessaryJoints(vrm.scene);
         VRMUtils.rotateVRM0(vrm);
 
-        // Face the camera and position the avatar a bit lower.
         vrm.scene.rotation.y = 0;
-        vrm.scene.position.set(
-          0, 
-          0,
-          2);
+        vrm.scene.position.set(0, 0, 2);
 
         scene.add(vrm.scene);
         vrmRef.current = vrm;
@@ -289,7 +285,7 @@ function loadVrm(
         resolve();
       },
       undefined,
-      (error) => {
+      (error: unknown) => {
         console.error("VRM load error", error);
         setStatus((s) => ({
           ...s,
@@ -572,9 +568,11 @@ const HomeScreen: React.FC = () => {
       return;
     }
 
-    overlay.width = VIDEO_WIDTH;
-    overlay.height = VIDEO_HEIGHT;
-    const ctx2d = overlay.getContext("2d");
+    const overlayCanvas = overlay as HTMLCanvasElement;
+    overlayCanvas.width = VIDEO_WIDTH;
+    overlayCanvas.height = VIDEO_HEIGHT;
+    const ctx2d = overlayCanvas.getContext("2d");
+
     if (!ctx2d) {
       console.error("Failed to get 2D context for camera overlay");
       return;
