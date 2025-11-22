@@ -48,8 +48,8 @@ jobs:
           name: coverage-node${{ matrix.node }}
           path: frontend/app/coverage
           if-no-files-found: warn
-  web-export-smoke:
-    name: Expo web export (smoke)
+  web-export:
+    name: Expo web export
     needs: test
     runs-on: ubuntu-latest
     env:
