@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://europanite.github.io/webcam_to_avatar/sitemap.xml
