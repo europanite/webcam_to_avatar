@@ -224,7 +224,7 @@ function setupThree(canvas: HTMLCanvasElement): ThreeContext {
   scene.background = null;
 
   const camera = new THREE.PerspectiveCamera(
-    60, // fov: The vertical field of view. Default is 50.
+    50, // fov: The vertical field of view. Default is 50.
     VIDEO_WIDTH / VIDEO_HEIGHT, // 	The aspect ratio. Default is 1.
     0.1, //	The camera's near plane.Default is 0.1.
     2000, // The camera's far plane. Default is 2000.
@@ -267,7 +267,7 @@ function loadVrm(
 
   return new Promise<void>((resolve, reject) => {
     loader.load(
-      "avatar_D_00.vrm",
+      "VRoid_Woman.vrm",
       (gltf: any) => {
         const vrm = gltf.userData.vrm as VRM;
 
@@ -276,7 +276,7 @@ function loadVrm(
         VRMUtils.rotateVRM0(vrm);
 
         vrm.scene.rotation.y = 0;
-        vrm.scene.position.set(0, 0, 2);
+        vrm.scene.position.set(0, 0, 3);
 
         scene.add(vrm.scene);
         vrmRef.current = vrm;
@@ -772,7 +772,12 @@ const HomeScreen: React.FC = () => {
           WebCam to VRM
         </Text>
       </TouchableOpacity>
-
+      <Text style={styles.description}>
+          This demo reads your webcam pose, face, and hands using MediaPipe
+          Holistic (Thunder) and drives a VRoid avatar in real time with
+          Kalidokit and Three.js. Your video and landmark data never leave the
+          browser.
+      </Text>
       <View style={styles.row}>
         <View style={styles.column}>
           <Text style={styles.sectionTitle}>Camera / pose preview</Text>
@@ -829,6 +834,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#ffffffff",
     marginBottom: 16,
+  },
+  description: {
+    fontSize: 14,
+    lineHeight: 20,
   },
   row: {
     flexDirection: "row",
