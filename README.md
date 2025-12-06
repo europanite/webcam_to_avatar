@@ -89,6 +89,12 @@ At a high level, the pipeline is:
 - **Tooling / Infra**
   - Docker & Docker Compose
   - GitHub Actions (CI, Docker tests, GitHub Pages deployment)
+---
+
+## 🧪 Sample Model
+
+The sample avatar in this repository is provided by **「メタバースヨコスカ」**.  
+For more details, see: https://metaverse-yokosuka.com/
 
 ---
 
