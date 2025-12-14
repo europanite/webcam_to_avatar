@@ -1,5 +1,7 @@
 # [WebCam to Avartar](https://github.com/europanite/vre "WebCam to Avartar")
 
+![OS](https://img.shields.io/badge/OS-Linux%20%7C%20macOS%20%7C%20Windows-blue)
+
 [![CI](https://github.com/europanite/webcam_to_avatar/actions/workflows/ci.yml/badge.svg)](https://github.com/europanite/webcam_to_avatar/actions/workflows/ci.yml)
 [![docker](https://github.com/europanite/webcam_to_avatar/actions/workflows/docker.yml/badge.svg)](https://github.com/europanite/webcam_to_avatar/actions/workflows/docker.yml)
 [![GitHub Pages](https://github.com/europanite/webcam_to_avatar/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/europanite/webcam_to_avatar/actions/workflows/deploy-pages.yml)
