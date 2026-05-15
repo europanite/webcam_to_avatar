@@ -65,6 +65,9 @@ jobs:
       - name: Install deps
         working-directory: frontend/app
         run: npm ci
+      - name: Install Expo web dependency
+        working-directory: frontend/app
+        run: npm install react-native-web@^0.21.0 --no-audit --no-fund
       - name: Build (expo export -p web)
         working-directory: frontend/app
         run: npx expo export -p web
