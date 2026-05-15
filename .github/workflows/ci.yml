@@ -42,7 +42,7 @@ jobs:
         run: npm test -- --ci --runInBand --coverage --verbose
       - name: Upload coverage
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-node${{ matrix.node }}
           path: frontend/app/coverage
@@ -73,7 +73,7 @@ jobs:
         run: npx expo export -p web
       - name: Upload dist (preview artifact)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: expo-web-dist
           path: frontend/app/dist
