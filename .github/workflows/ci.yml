@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [18, 20, 22]
+        node: [18, 20, 22, 24]
     env:
       CI: "1"
       EXPO_TUNNEL: "false"
@@ -22,9 +22,9 @@ jobs:
       EXPO_PUBLIC_API_BASE: http://localhost:8000
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Use Node ${{ matrix.node }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -36,14 +36,13 @@ jobs:
         if: hashFiles('frontend/app/tsconfig.json') != ''
         working-directory: frontend/app
         run: |
-          npx --yes typescript@latest -v >/dev/null 2>&1 || true
-          npx tsc --noEmit || (echo "::warning::Type check failed"; exit 1)
+          npx --yes --package typescript@latest tsc --noEmit || (echo "::warning::Type check failed"; exit 1)
       - name: Run Jest with coverage (CI mode)
         working-directory: frontend/app
         run: npm test -- --ci --runInBand --coverage --verbose
       - name: Upload coverage
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-node${{ matrix.node }}
           path: frontend/app/coverage
@@ -56,22 +55,25 @@ jobs:
       CI: "1"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-      - name: Use Node 20
-        uses: actions/setup-node@v4
+        uses: actions/checkout@v6
+      - name: Use Node 24
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: frontend/app/package-lock.json
       - name: Install deps
         working-directory: frontend/app
         run: npm ci
+      - name: Install Expo web dependency
+        working-directory: frontend/app
+        run: npm install react-native-web@^0.21.0 --no-audit --no-fund
       - name: Build (expo export -p web)
         working-directory: frontend/app
         run: npx expo export -p web
       - name: Upload dist (preview artifact)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: expo-web-dist
           path: frontend/app/dist
