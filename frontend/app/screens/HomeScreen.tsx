@@ -261,7 +261,7 @@ function isValidLandmarkArray(landmarks: any, expectedLength: number): landmarks
   return true;
 }
 
-function isVisibleLandmark(point: MediaPipeLandmark | null | undefined) {
+function isVisibleLandmark(point: MediaPipeLandmark | null | undefined): point is MediaPipeLandmark {
   if (!point) return false;
   const score = point.score ?? point.visibility ?? 1;
   return score >= 0.2;
@@ -794,6 +794,9 @@ const HomeScreen: React.FC = () => {
       return;
     }
 
+    const inputVideo: HTMLVideoElement = video;
+    const overlayCtx: CanvasRenderingContext2D = ctx2d;
+
     const three = setupThree(vrmCanvas);
     threeRef.current = three;
 
@@ -848,14 +851,14 @@ const HomeScreen: React.FC = () => {
           const mirrorWebcamDisplay =
             debugDisplayRef.current.mirrorAvatarPose !== DEFAULT_MIRROR_AVATAR_POSE;
 
-          ctx2d.clearRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
-          drawCameraFrameOnCanvas(ctx2d, results.image, mirrorWebcamDisplay);
+          overlayCtx.clearRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
+          drawCameraFrameOnCanvas(overlayCtx, results.image, mirrorWebcamDisplay);
 
           const person = webcamResultsToPosePerson(results);
           lastPersonRef.current = person;
 
           if (person && debugDisplayRef.current.showWebcamBones) {
-            drawBody25OnCanvas(ctx2d, person, mirrorWebcamDisplay);
+            drawBody25OnCanvas(overlayCtx, person, mirrorWebcamDisplay);
           }
 
           const vrm = vrmRef.current;
@@ -883,10 +886,10 @@ const HomeScreen: React.FC = () => {
           throw new Error("MediaPipe Camera helper was not loaded");
         }
 
-        camera = new CameraCtor(video, {
+        camera = new CameraCtor(inputVideo, {
           onFrame: async () => {
             if (!cancelled && pose) {
-              await pose.send({ image: video });
+              await pose.send({ image: inputVideo });
             }
           },
           width: VIDEO_WIDTH,
@@ -901,7 +904,7 @@ const HomeScreen: React.FC = () => {
         }));
         await camera.start();
 
-        const mediaStream = video.srcObject as MediaStream | null;
+        const mediaStream = inputVideo.srcObject as MediaStream | null;
         if (mediaStream) streamRef.current = mediaStream;
       } catch (err: any) {
         console.error("Failed to initialize camera / pose", err);
