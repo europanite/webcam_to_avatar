@@ -30,6 +30,53 @@ interface UiStatus {
   error?: string;
 }
 
+type EulerRotation = {
+  x?: number;
+  y?: number;
+  z?: number;
+};
+
+type SolvedPose = {
+  Hips?: { rotation?: EulerRotation; position?: EulerRotation };
+  Spine?: EulerRotation;
+  Chest?: EulerRotation;
+  Neck?: EulerRotation;
+  Head?: EulerRotation;
+  LeftUpperArm?: EulerRotation;
+  LeftLowerArm?: EulerRotation;
+  LeftHand?: EulerRotation;
+  RightUpperArm?: EulerRotation;
+  RightLowerArm?: EulerRotation;
+  RightHand?: EulerRotation;
+  LeftUpperLeg?: EulerRotation;
+  LeftLowerLeg?: EulerRotation;
+  LeftFoot?: EulerRotation;
+  RightUpperLeg?: EulerRotation;
+  RightLowerLeg?: EulerRotation;
+  RightFoot?: EulerRotation;
+};
+
+const VRM_BONE_NAMES = {
+  hips: "hips",
+  spine: "spine",
+  chest: "chest",
+  upperChest: "upperChest",
+  neck: "neck",
+  head: "head",
+  leftUpperArm: "leftUpperArm",
+  leftLowerArm: "leftLowerArm",
+  leftHand: "leftHand",
+  rightUpperArm: "rightUpperArm",
+  rightLowerArm: "rightLowerArm",
+  rightHand: "rightHand",
+  leftUpperLeg: "leftUpperLeg",
+  leftLowerLeg: "leftLowerLeg",
+  leftFoot: "leftFoot",
+  rightUpperLeg: "rightUpperLeg",
+  rightLowerLeg: "rightLowerLeg",
+  rightFoot: "rightFoot",
+} as const;
+
 /**
  * Dynamically load MediaPipe Holistic from CDN.
  * We avoid using `import` to prevent bundler issues like
@@ -116,56 +163,74 @@ function isValidLandmarkArray(
 }
 
 /**
- * Helper: smoothly apply rotation to a VRM bone.
+ * Apply a Kalidokit Euler rotation to a normalized VRM humanoid bone.
+ * This follows the pose_estimation implementation: keep the VRM root fixed,
+ * reset the normalized pose each frame, and write local bone rotations directly.
  */
-function rigRotation(
-  bone: THREE.Object3D,
-  rotation: { x?: number; y?: number; z?: number } | null | undefined,
-  dampener = 1,
-  lerpAmount = 0.3
-) {
-  // Skip invalid rotation
-  if (
-    !rotation ||
-    typeof rotation.x !== "number" ||
-    typeof rotation.y !== "number" ||
-    typeof rotation.z !== "number" ||
-    Number.isNaN(rotation.x) ||
-    Number.isNaN(rotation.y) ||
-    Number.isNaN(rotation.z)
-  ) {
-    return;
-  }
-
-  // Convert Kalidokit euler (radians) to quaternion
-  const euler = new THREE.Euler(
-    rotation.x, 
-    rotation.y, 
-    rotation.z, 
-    "XYZ"
+function isFiniteEulerRotation(
+  rotation: EulerRotation | null | undefined
+): rotation is Required<EulerRotation> {
+  return Boolean(
+    rotation &&
+      typeof rotation.x === "number" &&
+      typeof rotation.y === "number" &&
+      typeof rotation.z === "number" &&
+      Number.isFinite(rotation.x) &&
+      Number.isFinite(rotation.y) &&
+      Number.isFinite(rotation.z)
   );
-  const targetQuat = new THREE.Quaternion().setFromEuler(euler);
-
-  // Just slerp the bone towards the target
-  bone.quaternion.slerp(targetQuat, lerpAmount * dampener);
 }
 
-/**
- * Helper: smoothly apply hips position to a VRM bone.
- * Kalidokit uses normalized coordinates; we only apply small offsets.
- */
-function rigPosition(
-  bone: THREE.Object3D,
-  position: { x: number; y: number; z: number },
-  dampener = 1,
-  lerpAmount = 0.1
+function applyRotation(
+  vrm: VRM,
+  boneName: string,
+  rotation: EulerRotation | null | undefined,
+  dampener = 1.0
 ) {
-  const target = new THREE.Vector3(
-    position.x,
-    position.y,
-    position.z
-  ).multiplyScalar(dampener);
-  bone.position.lerp(target, lerpAmount);
+  if (!isFiniteEulerRotation(rotation)) return;
+
+  const bone = getHumanoidBone((vrm as any).humanoid, boneName);
+  if (!bone) return;
+
+  bone.rotation.set(
+    rotation.x * dampener,
+    rotation.y * dampener,
+    rotation.z * dampener,
+    "XYZ"
+  );
+}
+
+function applyHips(vrm: VRM, solvedPose: SolvedPose) {
+  if (!solvedPose.Hips) return;
+
+  // Kalidokit exposes Hips.position, but that value is unstable for a webcam
+  // avatar root. Match pose_estimation: keep the VRM root fixed and apply only
+  // local hips rotation.
+  applyRotation(vrm, VRM_BONE_NAMES.hips, solvedPose.Hips.rotation, 0.35);
+}
+
+function applySolvedPose(vrm: VRM, solvedPose: SolvedPose) {
+  applyHips(vrm, solvedPose);
+
+  applyRotation(vrm, VRM_BONE_NAMES.spine, solvedPose.Spine, 0.35);
+  applyRotation(vrm, VRM_BONE_NAMES.chest, solvedPose.Chest ?? solvedPose.Spine, 0.25);
+  applyRotation(vrm, VRM_BONE_NAMES.upperChest, solvedPose.Chest ?? solvedPose.Spine, 0.2);
+  applyRotation(vrm, VRM_BONE_NAMES.neck, solvedPose.Neck, 0.35);
+  applyRotation(vrm, VRM_BONE_NAMES.head, solvedPose.Head, 0.5);
+
+  applyRotation(vrm, VRM_BONE_NAMES.leftUpperArm, solvedPose.LeftUpperArm, 1.0);
+  applyRotation(vrm, VRM_BONE_NAMES.leftLowerArm, solvedPose.LeftLowerArm, 1.0);
+  applyRotation(vrm, VRM_BONE_NAMES.leftHand, solvedPose.LeftHand, 0.7);
+  applyRotation(vrm, VRM_BONE_NAMES.rightUpperArm, solvedPose.RightUpperArm, 1.0);
+  applyRotation(vrm, VRM_BONE_NAMES.rightLowerArm, solvedPose.RightLowerArm, 1.0);
+  applyRotation(vrm, VRM_BONE_NAMES.rightHand, solvedPose.RightHand, 0.7);
+
+  applyRotation(vrm, VRM_BONE_NAMES.leftUpperLeg, solvedPose.LeftUpperLeg, 0.8);
+  applyRotation(vrm, VRM_BONE_NAMES.leftLowerLeg, solvedPose.LeftLowerLeg, 0.8);
+  applyRotation(vrm, VRM_BONE_NAMES.leftFoot, solvedPose.LeftFoot, 0.6);
+  applyRotation(vrm, VRM_BONE_NAMES.rightUpperLeg, solvedPose.RightUpperLeg, 0.8);
+  applyRotation(vrm, VRM_BONE_NAMES.rightLowerLeg, solvedPose.RightLowerLeg, 0.8);
+  applyRotation(vrm, VRM_BONE_NAMES.rightFoot, solvedPose.RightFoot, 0.6);
 }
 
 /**
@@ -229,16 +294,11 @@ function setupThree(canvas: HTMLCanvasElement): ThreeContext {
     0.1, //	The camera's near plane.Default is 0.1.
     2000, // The camera's far plane. Default is 2000.
   );
-  camera.position.set(
-    0, 
-    0,
-    0
-  );
-  camera.lookAt(new THREE.Vector3(
-    0,
-    0,
-    1
-  ));
+  // Match pose_estimation's VRM scene: camera in front of a Y-up avatar,
+  // looking toward the origin. The previous camera looked along +Z while the
+  // avatar was placed at z=3, which inverted the perceived motion.
+  camera.position.set(0, 0.25, 3.6);
+  camera.lookAt(new THREE.Vector3(0, 0.15, 0));
   scene.add(camera);
 
   // Simple lighting for VRM
@@ -271,12 +331,16 @@ function loadVrm(
       (gltf: any) => {
         const vrm = gltf.userData.vrm as VRM;
 
-        // Clean up VRM scene for better performance and orientation.
-        VRMUtils.removeUnnecessaryJoints(vrm.scene);
-        VRMUtils.rotateVRM0(vrm);
+        // Clean up VRM scene for better performance and use the same
+        // coordinate convention as pose_estimation's AvatarRigKalidokit.
+        VRMUtils.removeUnnecessaryVertices(gltf.scene);
+        VRMUtils.removeUnnecessaryJoints(gltf.scene);
 
-        vrm.scene.rotation.y = 0;
-        vrm.scene.position.set(0, 0, 3);
+        vrm.scene.position.set(0, -1.05, 0);
+        vrm.scene.rotation.set(0, Math.PI, 0);
+        vrm.scene.scale.setScalar(1.0);
+        (vrm.humanoid as any).resetNormalizedPose?.();
+        vrm.humanoid.update();
 
         scene.add(vrm.scene);
         vrmRef.current = vrm;
@@ -352,7 +416,8 @@ function applyKalidokitToVrm(vrm: VRM, results: any) {
       riggedPose = Kalidokit.Pose.solve(worldForSolve, pose2D, {
         runtime: "mediapipe",
         video: undefined,
-      });
+        enableLegs: true,
+      }) as SolvedPose | null;
     } catch (e) {
       console.warn("Kalidokit Pose.solve failed", e);
       riggedPose = null;
@@ -400,114 +465,23 @@ function applyKalidokitToVrm(vrm: VRM, results: any) {
   if (!humanoid) return;
 
   // --- Body / pose --------------------------------------------------------
+  // Reset first so old-frame rotations do not accumulate into a wrong axis.
+  if (typeof humanoid.resetNormalizedPose === "function") {
+    humanoid.resetNormalizedPose();
+  }
+
   if (riggedPose) {
-    const hips = getHumanoidBone(humanoid, "hips");
-    if (hips && riggedPose.Hips) {
-      // Hips have position / rotation 
-      if (riggedPose.Hips.position) {
-        rigPosition(hips, riggedPose.Hips.position, 1, 0.07);
-      }
-      if (riggedPose.Hips.rotation) {
-        rigRotation(hips, riggedPose.Hips.rotation, 1, 0.15);
-      }
-    }
-
-    const spine = getHumanoidBone(humanoid, "spine");
-    const chest = getHumanoidBone(humanoid, "chest");
-    if (spine && riggedPose.Spine) {
-      // Spine {x,y,z} 
-      rigRotation(spine, riggedPose.Spine, 0.25, 0.3);
-    }
-    if (chest && riggedPose.Chest) {
-      // Chest  {x,y,z}
-      rigRotation(chest, riggedPose.Chest, 0.25, 0.3);
-    }
-
-    const neck = getHumanoidBone(humanoid, "neck");
-    if (neck && (riggedPose.Neck || riggedPose.Head)) {
-      // Neck or Head
-      const neckRot =
-        (riggedPose as any).Neck ||
-        (riggedPose as any).Head ||
-        null;
-      if (neckRot) {
-        rigRotation(neck, neckRot, 0.5, 0.3);
-      }
-    }
-
-    // --- Arms -------------------------------------------------------------
-    const leftUpperArm = getHumanoidBone(humanoid, "leftUpperArm");
-    const leftLowerArm = getHumanoidBone(humanoid, "leftLowerArm");
-    const leftHandFromPose = getHumanoidBone(humanoid, "leftHand");
-    const rightUpperArm = getHumanoidBone(humanoid, "rightUpperArm");
-    const rightLowerArm = getHumanoidBone(humanoid, "rightLowerArm");
-    const rightHandFromPose = getHumanoidBone(humanoid, "rightHand");
-
-    if (leftUpperArm && riggedPose.LeftUpperArm) {
-      rigRotation(leftUpperArm, riggedPose.LeftUpperArm, 1, 0.3);
-    }
-    if (leftLowerArm && riggedPose.LeftLowerArm) {
-      rigRotation(leftLowerArm, riggedPose.LeftLowerArm, 1, 0.3);
-    }
-    if (leftHandFromPose && riggedPose.LeftHand) {
-      rigRotation(leftHandFromPose, riggedPose.LeftHand, 1, 0.3);
-    }
-
-    if (rightUpperArm && riggedPose.RightUpperArm) {
-      rigRotation(rightUpperArm, riggedPose.RightUpperArm, 1, 0.3);
-    }
-    if (rightLowerArm && riggedPose.RightLowerArm) {
-      rigRotation(rightLowerArm, riggedPose.RightLowerArm, 1, 0.3);
-    }
-    if (rightHandFromPose && riggedPose.RightHand) {
-      rigRotation(rightHandFromPose, riggedPose.RightHand, 1, 0.3);
-    }
-
-    // --- Legs -------------------------------------------------------------
-    const leftUpperLeg = getHumanoidBone(humanoid, "leftUpperLeg");
-    const leftLowerLeg = getHumanoidBone(humanoid, "leftLowerLeg");
-    const leftFoot = getHumanoidBone(humanoid, "leftFoot");
-    const rightUpperLeg = getHumanoidBone(humanoid, "rightUpperLeg");
-    const rightLowerLeg = getHumanoidBone(humanoid, "rightLowerLeg");
-    const rightFoot = getHumanoidBone(humanoid, "rightFoot");
-
-    if (leftUpperLeg && riggedPose.LeftUpperLeg) {
-      rigRotation(leftUpperLeg, riggedPose.LeftUpperLeg, 1, 0.3);
-    }
-    if (leftLowerLeg && riggedPose.LeftLowerLeg) {
-      rigRotation(leftLowerLeg, riggedPose.LeftLowerLeg, 1, 0.3);
-    }
-    if (leftFoot && riggedPose.LeftFoot) {
-      rigRotation(leftFoot, riggedPose.LeftFoot, 1, 0.3);
-    }
-
-    if (rightUpperLeg && riggedPose.RightUpperLeg) {
-      rigRotation(rightUpperLeg, riggedPose.RightUpperLeg, 1, 0.3);
-    }
-    if (rightLowerLeg && riggedPose.RightLowerLeg) {
-      rigRotation(rightLowerLeg, riggedPose.RightLowerLeg, 1, 0.3);
-    }
-    if (rightFoot && riggedPose.RightFoot) {
-      rigRotation(rightFoot, riggedPose.RightFoot, 1, 0.3);
-    }
+    applySolvedPose(vrm, riggedPose as SolvedPose);
   }
 
   // --- Hands (Hand.solve → wrist rotation) -----------------------------
   if (riggedLeftHand) {
-    const leftHand = getHumanoidBone(humanoid, "leftHand");
     // Kalidokit.Hand.solve: LeftWrist / RightWrist
-    const leftWristRot = (riggedLeftHand as any).LeftWrist;
-    if (leftHand && leftWristRot) {
-      rigRotation(leftHand, leftWristRot, 1, 0.3);
-    }
+    applyRotation(vrm, VRM_BONE_NAMES.leftHand, (riggedLeftHand as any).LeftWrist, 0.7);
   }
 
   if (riggedRightHand) {
-    const rightHand = getHumanoidBone(humanoid, "rightHand");
-    const rightWristRot = (riggedRightHand as any).RightWrist;
-    if (rightHand && rightWristRot) {
-      rigRotation(rightHand, rightWristRot, 1, 0.3);
-    }
+    applyRotation(vrm, VRM_BONE_NAMES.rightHand, (riggedRightHand as any).RightWrist, 0.7);
   }
 
   // --- Face (head rotation only) -----------------------------------------
@@ -520,8 +494,12 @@ function applyKalidokitToVrm(vrm: VRM, results: any) {
         (riggedFace as any).Head.rotation);
 
     if (headBone && faceHead) {
-      rigRotation(headBone, faceHead, 0.7, 0.3);
+      applyRotation(vrm, VRM_BONE_NAMES.head, faceHead, 0.7);
     }
+  }
+
+  if (typeof humanoid.update === "function") {
+    humanoid.update();
   }
 }
 
