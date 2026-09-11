@@ -7,9 +7,6 @@ permissions:
   contents: read
   pages: write
   id-token: write
-concurrency:
-  group: "pages"
-  cancel-in-progress: true
 jobs:
   build:
     if: github.ref == 'refs/heads/main'
@@ -37,7 +34,7 @@ jobs:
           <?xml version="1.0" encoding="UTF-8"?>
           <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
             <url>
-              <loc>https://europanite.github.io/dummy_page/</loc>
+              <loc>https://europanite.github.io/webcam_to_avatar/</loc>
               <lastmod>${LASTMOD}</lastmod>
             </url>
           </urlset>
@@ -54,6 +51,12 @@ jobs:
     if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: true
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
